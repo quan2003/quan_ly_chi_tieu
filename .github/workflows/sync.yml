@@ -1,0 +1,33 @@
+name: Email Sync Worker
+
+on:
+  schedule:
+    # Chạy mỗi 15 phút
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Cho phép bấm nút "Run manual" bằng tay
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install dependencies
+      run: npm install imapflow mailparser @supabase/supabase-js dotenv
+
+    - name: Run sync script
+      env:
+        IMAP_HOST: ${{ secrets.IMAP_HOST }}
+        IMAP_PORT: ${{ secrets.IMAP_PORT }}
+        EMAIL_USER: ${{ secrets.EMAIL_USER }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: node githubSync.js

@@ -6,24 +6,26 @@ import http from 'http';
 
 dotenv.config();
 
-const POLL_INTERVAL_MS = 60 * 1000; // Giảm xuống 1 phút cho nhanh
+// Cấu hình linh hoạt
+const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 phút quét backup nếu IDLE lỗi
+const SELF_PING_MS = 5 * 60 * 1000;   // 5 phút ping chính mình để chống ngủ
+const port = process.env.PORT || 3000;
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// Tự PING bản thân để chống Render ngủ đông (mỗi 10 phút)
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
-if (RENDER_URL) {
-    setInterval(() => {
-        http.get(RENDER_URL, (res) => {
-            console.log(`[${new Date().toLocaleTimeString()}] 💓 Tự ping giữ thức: ${res.statusCode}`);
-        }).on('error', (err) => {
-            console.error('Lỗi tự ping:', err.message);
-        });
-    }, 10 * 60 * 1000);
-}
+// --- LOGIC TỰ PING (CHỐNG RENDER NGỦ ĐÔNG) ---
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`;
+setInterval(() => {
+    const url = RENDER_URL.startsWith('http') ? RENDER_URL : `https://${RENDER_URL}`;
+    http.get(url, (res) => {
+        console.log(`[${new Date().toLocaleTimeString()}] 💓 Health Check (Ping): ${res.statusCode}`);
+    }).on('error', (err) => {
+        console.error('⚠️ Lỗi tự ping:', err.message);
+    });
+}, SELF_PING_MS);
 
 const config = {
     host: process.env.IMAP_HOST || 'imap.gmail.com',
@@ -36,7 +38,8 @@ const config = {
     logger: false
 };
 
-const moneyRegex = /(?:Số tiền(?! khả dụng)|Giao dịch|Phát sinh Nợ|Phát sinh Có|Số tiền GD|vừa tăng|vừa giảm)\s*[:]*\s*([+-]?\s*[0-9\.\,]+)\s*(?:VND|VNĐ|đ)?/i;
+// Regex cải tiến để bắt chính xác hơn
+const moneyRegex = /(?:Số tiền(?! khả dụng)|Giao dịch|Phát sinh Nợ|Phát sinh Có|Số tiền GD|vừa tăng|vừa giảm|biến động)\s*[:]*\s*([+-]?\s*[0-9\.\,]+)\s*(?:VND|VNĐ|đ)?/i;
 const descRegex = /(?:Nội dung(?: giao dịch)?|Ghi chú|Chi tiết|Nội dung GD|Mô tả)\s*[:]*\s*([^\.\n\r]+)/i;
 
 async function processEmail(source, uid) {
@@ -61,28 +64,23 @@ async function processEmail(source, uid) {
         const descMatch = text.match(descRegex);
         if (descMatch && descMatch[1]) content = descMatch[1].trim();
 
+        // Phân loại nâng cao
         let finalCategory = 'Kinh doanh / Khác';
         if (type === 'income') {
             finalCategory = 'Thu nhập';
         } else {
             const t = content.toLowerCase();
-            // Có dấu
-            const hasAccent =
-                t.includes('ăn') || t.includes('cafe') || t.includes('food') || t.includes('nhà hàng') ||
-                t.includes('com ') || t.includes('bun ') || t.includes('pho');
+            const foodKeywords = ['an', 'com', 'bun', 'pho', 'bep', 'quan an', 'nha hang', 'cafe', 'coffee', 'tra sua', 'banh', 'food', 'bakery'];
+            const shopKeywords = ['shopee', 'lazada', 'tiktok', 'mua hang', 'sieu thi', 'clothing', 'fashion', 'ao ', 'quan '];
+            const transportKeywords = ['xang', 'grab', 'gojek', 'xe om', 'taxi', 'be ', 'xanh sm', 'petrolimex'];
+            const homeKeywords = ['dien', 'nuoc', 'internet', 'tien nha', 'thue nha', 'mang', 'wifi', 'fpt', 'viettel'];
+            const livingKeywords = ['chuyen tien', 'transfer', 'tiet kiem', 'tra no', 'sinh hoat'];
 
-            // Không dấu (Timo thường gửi không dấu)
-            const noAccentFood = /\ban\b|com|bun|pho|bep|quan an|nha hang|cafe|coffee|tra sua|banh/.test(t);
-            const noAccentShop = /shopee|lazada|tiktok|mua hang|sieu thi|grab food|baemin/.test(t);
-            const noAccentFuel = /xang|grab (bike|car)|gojek|xe om|taxi|be /.test(t);
-            const noAccentBill = /dien|nuoc|internet|tien nha|thue nha|mang/.test(t);
-            const noAccentTransfer = /chuyen tien|ck |ck$|transfer/.test(t);
-
-            if (noAccentShop || t.includes('shopee') || t.includes('tiktok') || t.includes('lazada')) finalCategory = 'Mua sắm';
-            else if (hasAccent || noAccentFood) finalCategory = 'Ăn uống';
-            else if (noAccentFuel || t.includes('xăng') || t.includes('grab') || t.includes('gojek')) finalCategory = 'Xăng xe';
-            else if (noAccentBill || t.includes('điện') || t.includes('nước') || t.includes('internet')) finalCategory = 'Nhà cửa';
-            else if (noAccentTransfer || t.includes('chuyển tiền')) finalCategory = 'Sinh hoạt';
+            if (shopKeywords.some(k => t.includes(k))) finalCategory = 'Mua sắm';
+            else if (foodKeywords.some(k => t.includes(k))) finalCategory = 'Ăn uống';
+            else if (transportKeywords.some(k => t.includes(k))) finalCategory = 'Xăng xe';
+            else if (homeKeywords.some(k => t.includes(k))) finalCategory = 'Nhà cửa';
+            else if (livingKeywords.some(k => t.includes(k))) finalCategory = 'Sinh hoạt';
         }
 
         if (amount > 0) {
@@ -97,129 +95,121 @@ async function processEmail(source, uid) {
         }
         return null;
     } catch (err) {
-        console.error('Lỗi parse email UID:', uid, err.message);
+        console.error('❌ Lỗi parse email UID:', uid, err.message);
         return null;
     }
 }
 
-async function fetchAndUpdate() {
-    const client = new ImapFlow(config);
+// Hàm sync sử dụng client hiện hữu thay vì tạo client mới
+async function syncEmails(client) {
+    const nowStr = new Date().toLocaleTimeString('vi-VN');
+    process.stdout.write(`[${nowStr}] 🔍 Đang quét email...`);
+
     try {
-        await client.connect();
-        let lock = await client.getMailboxLock('INBOX');
+        const since = new Date();
+        since.setDate(since.getDate() - 3); // Quét 3 ngày gần nhất
+
         const results = [];
-        try {
-            // Lùi về 3 ngày trước để bắt hết email theo múi giờ
-            const since = new Date();
-            since.setDate(since.getDate() - 3);
-            for await (let msg of client.fetch({ since }, { source: true, uid: true })) {
-                if (msg.source) {
-                    const tx = await processEmail(msg.source, msg.uid);
-                    if (tx) results.push(tx);
-                }
+        for await (let msg of client.fetch({ since }, { source: true, uid: true })) {
+            if (msg.source) {
+                const tx = await processEmail(msg.source, msg.uid);
+                if (tx) results.push(tx);
             }
-        } finally {
-            lock.release();
         }
 
         if (results.length > 0) {
-            // Upsert vào Supabase (tránh trùng lặp dựa theo id = uid email)
             const { error } = await supabase
                 .from('transactions')
                 .upsert(results, { onConflict: 'id', ignoreDuplicates: true });
+            
             if (error) {
-                console.error('Supabase upsert error:', error.message);
-                return -1;
+                console.log(` ❌ Lỗi Supabase: ${error.message}`);
+            } else {
+                console.log(` ✅ Đã đồng bộ ${results.length} giao dịch.`);
             }
-            return results.length;
+        } else {
+            console.log(' ℹ️ Không có giao dịch mới.');
         }
-        return 0;
     } catch (err) {
-        console.error('Lỗi kết nối:', err.message);
-        return -1;
-    } finally {
-        try { await client.logout(); } catch {}
+        console.log(` ❌ Lỗi Sync: ${err.message}`);
     }
 }
 
-async function getCurrentCount() {
-    const { count } = await supabase
-        .from('transactions')
-        .select('*', { count: 'exact', head: true });
-    return count || 0;
-}
-
-async function runWatcher() {
-    console.log('🚀 Real-time Email Watcher đã khởi động!');
-    console.log(`📧 Tài khoản: ${config.auth.user}`);
-    console.log('⚡ Đang dùng chế độ INSTANT (IDLE) - Nhận mail là nhảy số ngay!');
-    console.log('─'.repeat(50));
+async function startWatcher() {
+    console.log('🚀 Dịch vụ Email Watcher đang khởi động...');
+    
+    if (!config.auth.user || !config.auth.pass) {
+        console.error('❌ LỖI: Thiếu email hoặc mật khẩu app trong .env');
+        process.exit(1);
+    }
 
     const client = new ImapFlow(config);
 
-    const checkAndSync = async () => {
-        const prevCount = await getCurrentCount();
-        const now = new Date().toLocaleTimeString('vi-VN');
-        process.stdout.write(`[${now}] 🔍 Đang quét email...`);
+    const connectAndListen = async () => {
+        try {
+            console.log('🔗 Đang kết nối tới IMAP server...');
+            await client.connect();
+            console.log('🔓 Đã kết nối! Đang chế độ REAL-TIME (IDLE).');
 
-        const count = await fetchAndUpdate();
-        if (count < 0) {
-            console.log(' ❌ Lỗi kết nối!');
-        } else if (count > prevCount) {
-            const newCount = count - prevCount;
-            console.log(` ✅ Cập nhật ${newCount} giao dịch mới! (Tổng: ${count})`);
-        } else {
-            console.log(` Không có gì mới (Tổng: ${count})`);
+            await client.mailboxOpen('INBOX');
+
+            // Chạy sync lần đầu
+            await syncEmails(client);
+
+            // Lắng nghe mail mới
+            client.once('exists', async () => {
+                console.log(`\n[${new Date().toLocaleTimeString()}] 🔔 Có mail mới!`);
+                await syncEmails(client);
+                // Sau khi xong thì reset listener để lắng nghe tiếp (imapflow recommend once cho exists)
+                setupExistsListener();
+            });
+
+            const setupExistsListener = () => {
+                client.once('exists', async () => {
+                    console.log(`\n[${new Date().toLocaleTimeString()}] 🔔 Có mail mới!`);
+                    await syncEmails(client);
+                    setupExistsListener();
+                });
+            };
+
+        } catch (err) {
+            console.error('❌ Lỗi kết nối IMAP:', err.message);
+            console.log('🔄 Sẽ thử lại sau 30 giây...');
+            setTimeout(connectAndListen, 30000);
         }
     };
 
-    try {
-        await client.connect();
-        
-        // 1. Chạy lần đầu tiên khi khởi động
-        await checkAndSync();
-
-        // 2. Mở hộp thư và lắng nghe sự kiện TRỰC TIẾP
-        await client.mailboxOpen('INBOX');
-
-        // Khi có mail mới (Sự kiện EXISTS)
-        client.on('exists', async (data) => {
-            console.log(`\n[${new Date().toLocaleTimeString()}] 🔔 Phát hiện có mail mới (IDLE)! Đang xử lý...`);
-            await checkAndSync();
-        });
-
-        // Tự động kết nối lại nếu bị đứt (Keep-alive)
-        setInterval(async () => {
+    // Keep alive bằng NOOP
+    setInterval(async () => {
+        if (client.usable) {
             try {
-                await client.noop(); // Đảm bảo kết nối không bị chết
+                await client.noop();
             } catch (e) {
-                console.error('Kết nối bị đứt, đang thử lại...');
-                await client.connect();
-                await client.mailboxOpen('INBOX');
+                console.log('⚠️ Kết nối bị treo, đang kết nối lại...');
+                await connectAndListen();
             }
-        }, 5 * 60 * 1000); // 5 phút quét nhẹ 1 lần để giữ kết nối
+        } else {
+            await connectAndListen();
+        }
+    }, 2 * 60 * 1000); // 2 phút noop 1 lần
 
-    } catch (err) {
-        console.error('Lỗi khởi động IDLE:', err.message);
-        // Fallback về chế độ quét 1 phút nếu IDLE lỗi
-        setInterval(checkAndSync, 60 * 1000);
-    }
+    // Backup Sync mỗi 30 phút phòng trường hợp IDLE miss
+    setInterval(async () => {
+        if (client.usable) {
+            await syncEmails(client);
+        }
+    }, 30 * 60 * 1000);
+
+    await connectAndListen();
 }
 
-// DUMMY HTTP SERVER FOR RENDER HEALTH CHECK
-// Render Web Service requires a port to be bound
-const port = process.env.PORT || 3000;
+// Cải tiến Health Check Server (Trả lời 200 cho MỌI path để chống 404 trên Render)
 http.createServer((req, res) => {
+    console.log(`[HTTP] ${req.method} ${req.url} - Trả lời: 200 OK`);
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Email Watcher is running...');
+    res.end('Spending Manager (Email Watcher) is ACTIVE 💓');
 }).listen(port, () => {
-    console.log(`📡 Health check server listening on port ${port}`);
+    console.log(`📡 Health-check server listening on port ${port}`);
 });
 
-// Kiểm tra credentials trước khi chạy
-if (!config.auth.user || !config.auth.pass) {
-    console.error('❌ LỖI: Chưa cấu hình EMAIL_USER hoặc EMAIL_PASSWORD trong file .env');
-    process.exit(1);
-}
-
-runWatcher();
+startWatcher();
