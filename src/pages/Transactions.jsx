@@ -12,6 +12,7 @@ export default function Transactions() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
   const [filterExactDate, setFilterExactDate] = useState('');
 
   // Inline edit state
@@ -93,6 +94,7 @@ export default function Transactions() {
       const matchSearch = tx.content.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (tx.date && tx.date.includes(searchTerm));
       const matchType = filterType === 'all' || tx.type === filterType;
+      const matchCategory = filterCategory === 'all' || tx.category === filterCategory;
       
       let matchMonth = true;
       if (filterMonth === 'current') {
@@ -108,7 +110,7 @@ export default function Transactions() {
         matchExactDate = tx.date === targetDate;
       }
 
-      return matchSearch && matchType && matchMonth && matchExactDate;
+      return matchSearch && matchType && matchCategory && matchMonth && matchExactDate;
     })
     .sort((a, b) => {
       // Ưu tiên hiển thị ngày mới nhất trên cùng
@@ -162,6 +164,11 @@ export default function Transactions() {
                 <option value="all">Tất cả loại</option>
                 <option value="income">Thu nhập</option>
                 <option value="expense">Chi tiêu</option>
+              </select>
+              <div className="w-px h-4 bg-gray-300 mx-1 shrink-0"></div>
+              <select className="text-sm bg-transparent border-none focus:ring-0 text-gray-700 font-medium cursor-pointer max-w-[120px]" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+                <option value="all">Phân loại</option>
+                {ALL_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
               </select>
             </div>
           </div>

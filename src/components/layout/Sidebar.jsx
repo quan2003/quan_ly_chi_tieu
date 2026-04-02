@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ReceiptText, Wallet, X } from 'lucide-react';
+import { LayoutDashboard, ReceiptText, Wallet, Target, X } from 'lucide-react';
 import logo from '../../images/logo_QN.png';
 
 export default function Sidebar({ onClose }) {
@@ -7,6 +7,7 @@ export default function Sidebar({ onClose }) {
     { path: '/', label: 'Tổng quan', icon: LayoutDashboard },
     { path: '/transactions', label: 'Giao dịch', icon: ReceiptText },
     { path: '/budgets', label: 'Ngân sách', icon: Wallet },
+    { path: '/savings', label: 'Tiết kiệm', icon: Target },
   ];
 
   return (

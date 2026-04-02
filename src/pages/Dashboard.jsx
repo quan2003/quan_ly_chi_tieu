@@ -6,12 +6,16 @@ import {
   ResponsiveContainer, Legend
 } from 'recharts';
 import { useTransactions } from '../hooks/useTransactions';
+import { useBudgets } from '../hooks/useBudgets';
+import { TrendingUp, TrendingDown, Target, Info } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const MONTHS_VI = ['Th.1','Th.2','Th.3','Th.4','Th.5','Th.6','Th.7','Th.8','Th.9','Th.10','Th.11','Th.12'];
 
 export default function Dashboard() {
   const [chartMode, setChartMode] = useState('month');
   const { transactions, loading } = useTransactions();
+  const { budgets } = useBudgets();
 
   const fmt = (val) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val || 0);
   const fmtShort = (val) => {
@@ -48,14 +52,61 @@ export default function Dashboard() {
   const yearlyMonthData = useMemo(() => {
     return MONTHS_VI.map((label, i) => {
       const m = i + 1;
-      const txs = transactions.filter(tx => parseInt(tx.date.split('/')[1]) === m);
+      const txs = transactions.filter(tx => {
+        const p = tx.date.split('/');
+        return parseInt(p[1]) === m && (parseInt(p[2] || currentYear) === currentYear);
+      });
       return {
         date: label,
         income: txs.filter(t => t.type === 'income').reduce((a, b) => a + Math.abs(b.amount), 0),
         expense: txs.filter(t => t.type === 'expense').reduce((a, b) => a + Math.abs(b.amount), 0),
       };
     });
-  }, [transactions]);
+  }, [transactions, currentYear]);
+
+  // --- LOGIC PHÂN TÍCH XU HƯỚNG ---
+  const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+  const lastMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+  
+  const lastMonthTxs = useMemo(() => transactions.filter(tx => {
+    const p = tx.date.split('/');
+    return parseInt(p[1]) === lastMonth && parseInt(p[2] || lastMonthYear) === lastMonthYear;
+  }), [transactions, lastMonth, lastMonthYear]);
+
+  const lastMonthExpense = lastMonthTxs.filter(t => t.type === 'expense').reduce((a, b) => a + Math.abs(b.amount), 0);
+  const expenseDiffPercent = lastMonthExpense > 0 
+    ? ((totalExpense - lastMonthExpense) / lastMonthExpense * 100).toFixed(1)
+    : 0;
+  
+  const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0;
+
+  // --- HỆ THỐNG THÔNG BÁO NGÂN SÁCH ---
+  React.useEffect(() => {
+    if (budgets.length > 0 && thisMonthTxs.length > 0) {
+      budgets.forEach(b => {
+        const spent = thisMonthTxs
+          .filter(tx => tx.category === b.category && tx.type === 'expense')
+          .reduce((a, c) => a + Math.abs(c.amount), 0);
+        
+        const ratio = (spent / b.amount) * 100;
+        
+        if (ratio >= 80) {
+          const type = ratio >= 100 ? 'VƯỢT ĐỊNH MỨC' : 'SẮP CHẠM NGƯỠNG';
+          const msg = `⚠️ Hạn mức [${b.category}] đã ${ratio >= 100 ? 'vượt' : 'đạt'} ${ratio.toFixed(0)}%!`;
+          
+          // Toast trong app
+          if (ratio >= 100) toast.error(msg, { id: `alert-${b.category}` });
+          else toast(msg, { icon: '🔔', id: `alert-${b.category}` });
+
+          // Yêu cầu Browser Notification nếu cần
+          if (Notification.permission === 'default') Notification.requestPermission();
+          if (Notification.permission === 'granted' && ratio >= 80) {
+             new Notification('Quản lý chi tiêu', { body: msg });
+          }
+        }
+      });
+    }
+  }, [budgets, thisMonthTxs]);
 
   const recentTransactions = transactions.slice(0, 5);
 
@@ -105,10 +156,64 @@ export default function Dashboard() {
             <div>
               <p className="text-sm font-medium text-gray-500">Tổng chi tháng {currentMonth}</p>
               <h3 className="text-2xl font-bold text-red-500 mt-1">-{fmt(totalExpense)}</h3>
+              <p className={`text-xs mt-2 flex items-center gap-1 ${parseFloat(expenseDiffPercent) <= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {parseFloat(expenseDiffPercent) <= 0 ? <TrendingDown size={14} /> : <TrendingUp size={14} />}
+                {Math.abs(expenseDiffPercent)}% so với tháng trước
+              </p>
             </div>
             <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500">
               <ArrowDownRight size={20} />
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* TREND ANALYSIS PANEL */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-md text-white">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+              <Target size={24} />
+            </div>
+            <h2 className="text-lg font-bold">Hiệu quả tiết kiệm</h2>
+          </div>
+          <div className="flex items-end gap-2 mb-2">
+            <span className="text-4xl font-black">{savingsRate}%</span>
+            <span className="mb-2 text-blue-100 text-sm">thu nhập được giữ lại</span>
+          </div>
+          <div className="w-full bg-white/20 rounded-full h-3 mb-4 overflow-hidden">
+            <div className="bg-green-400 h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, Math.max(0, savingsRate))}%` }}></div>
+          </div>
+          <p className="text-sm text-blue-100 leading-relaxed italic">
+            {savingsRate > 30 ? "🔥 Tuyệt vời! Bạn đang tiết kiệm rất tốt." : "💡 Hãy cố gắng kiểm soát các khoản chi không cần thiết nhé."}
+          </p>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="p-2 bg-orange-50 rounded-lg text-orange-500">
+              <Info size={24} />
+            </div>
+            <h2 className="text-lg font-bold text-gray-800">Cảnh báo Ngân sách</h2>
+          </div>
+          <div className="space-y-4">
+            {budgets.slice(0, 3).map(b => {
+              const spent = thisMonthTxs
+                .filter(tx => tx.category === b.category && tx.type === 'expense')
+                .reduce((a, c) => a + Math.abs(c.amount), 0);
+              const ratio = Math.min(100, (spent / b.amount) * 100);
+              return (
+                <div key={b.category}>
+                  <div className="flex justify-between text-sm mb-1.5">
+                    <span className="font-medium text-gray-700">{b.category}</span>
+                    <span className={`font-bold ${ratio >= 90 ? 'text-red-500' : 'text-gray-500'}`}>{ratio.toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div className={`h-full rounded-full transition-all ${ratio >= 100 ? 'bg-red-500' : ratio >= 80 ? 'bg-orange-400' : 'bg-blue-500'}`} style={{ width: `${ratio}%` }}></div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
