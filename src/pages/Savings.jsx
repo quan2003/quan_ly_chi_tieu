@@ -28,10 +28,14 @@ export default function Savings() {
     e.preventDefault();
     if (!newTitle.trim() || !newTarget) return;
 
+    // Loại bỏ dấu chấm/phẩy nếu có trước khi lưu
+    const targetAmt = parseInt(newTarget.toString().replace(/[^\d]/g, ''), 10);
+    const currentAmt = parseInt(newCurrent.toString().replace(/[^\d]/g, ''), 10) || 0;
+
     const ok = await addGoal({
       title: newTitle.trim(),
-      target_amount: parseInt(newTarget, 10),
-      current_amount: parseInt(newCurrent, 10) || 0,
+      target_amount: targetAmt,
+      current_amount: currentAmt,
       created_at: new Date().toISOString()
     });
 
