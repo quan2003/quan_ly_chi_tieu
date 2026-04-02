@@ -101,13 +101,17 @@ export default function Budgets() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {budgetList.map((budget) => {
-          const percent = budget.amount > 0 ? Math.min((budget.spent / budget.amount) * 100, 100) : 100;
-          let colorClass = 'bg-green-500';
-          if (percent >= 80) colorClass = 'bg-red-500';
-          else if (percent >= 50) colorClass = 'bg-yellow-400';
+          const rawPercent = budget.amount > 0 ? (budget.spent / budget.amount) * 100 : 0;
+          const percent = Math.min(rawPercent, 100);
+          const isOver = budget.spent > budget.amount;
+          
+          let colorClass = 'bg-blue-500';
+          if (rawPercent >= 100) colorClass = 'bg-red-600';
+          else if (rawPercent >= 80) colorClass = 'bg-orange-500';
+          else if (rawPercent >= 50) colorClass = 'bg-yellow-400';
 
           return (
-            <div key={budget.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 relative group">
+            <div key={budget.id} className={`bg-white p-5 rounded-xl shadow-sm border transition-all duration-300 relative group ${isOver ? 'border-red-200 bg-red-50/10' : 'border-gray-100'}`}>
               <div className="absolute top-4 right-4 hidden group-hover:flex gap-2">
                 <button onClick={() => openEdit(budget.category, budget.amount)}
                   className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"><Pencil size={16} /></button>
@@ -115,24 +119,37 @@ export default function Budgets() {
                   className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button>
               </div>
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isOver ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-blue-50 text-blue-500'}`}>
                   <Wallet size={20} />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900 pr-16 truncate">{budget.category}</h3>
-                  <p className="text-xs text-gray-500">Đã dùng {budget.amount > 0 ? ((budget.spent / budget.amount) * 100).toFixed(0) : 0}%</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900 pr-16 truncate">{budget.category}</h3>
+                    {isOver && <span className="bg-red-100 text-red-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">Vượt mức</span>}
+                  </div>
+                  <p className={`text-xs ${isOver ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
+                    Đã dùng {rawPercent.toFixed(0)}%
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="font-medium text-gray-700">{fmt(budget.spent)}</span>
+                  <span className={`font-medium ${isOver ? 'text-red-700' : 'text-gray-700'}`}>{fmt(budget.spent)}</span>
                   <span className="text-gray-500">{fmt(budget.amount)}</span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
                   <div className={`h-2.5 rounded-full ${colorClass} transition-all duration-500`} style={{ width: `${percent}%` }}></div>
                 </div>
-                <p className="text-xs text-center text-gray-500 pt-1">
-                  Còn lại: <span className="font-medium text-gray-800">{fmt(budget.amount - budget.spent)}</span>
+                <p className="text-xs text-center border-t border-dashed mt-2 pt-2">
+                  {isOver ? (
+                    <span className="text-red-600 font-bold">
+                      Vượt mức: {fmt(budget.spent - budget.amount)} ⚠️
+                    </span>
+                  ) : (
+                    <span className="text-gray-500">
+                      Còn lại: <span className="font-medium text-gray-800">{fmt(budget.amount - budget.spent)}</span>
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
