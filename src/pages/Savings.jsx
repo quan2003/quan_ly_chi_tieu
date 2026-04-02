@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Target, Plus, X, Trash2, TrendingUp, Clock } from 'lucide-react';
+import { Target, Plus, X, Trash2, TrendingUp, Clock, Pencil, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useGoals } from '../hooks/useGoals';
+import { supabase } from '../lib/supabase';
 import { useTransactions } from '../hooks/useTransactions';
 import VndInput from '../components/VndInput';
 
@@ -10,9 +11,13 @@ export default function Savings() {
   const { transactions } = useTransactions();
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState(null); // Để lưu goal đang được sửa
+  const [contributingGoal, setContributingGoal] = useState(null); // Cho modal cộng thêm tiền
+  
   const [newTitle, setNewTitle] = useState('');
   const [newTarget, setNewTarget] = useState('');
   const [newCurrent, setNewCurrent] = useState('0');
+  const [extraAmount, setExtraAmount] = useState('0'); // Số tiền cộng thêm
 
   const fmt = (val) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val || 0);
 
@@ -28,24 +33,63 @@ export default function Savings() {
     e.preventDefault();
     if (!newTitle.trim() || !newTarget) return;
 
-    // Loại bỏ dấu chấm/phẩy nếu có trước khi lưu
     const targetAmt = parseInt(newTarget.toString().replace(/[^\d]/g, ''), 10);
     const currentAmt = parseInt(newCurrent.toString().replace(/[^\d]/g, ''), 10) || 0;
 
-    const ok = await addGoal({
-      title: newTitle.trim(),
-      target_amount: targetAmt,
-      current_amount: currentAmt,
-      created_at: new Date().toISOString()
-    });
+    if (editingGoal) {
+      // Logic Cập nhật (Edit)
+      const { error } = await supabase.from('savings_goals').update({
+        title: newTitle.trim(),
+        target_amount: targetAmt,
+        current_amount: currentAmt
+      }).eq('id', editingGoal.id);
 
-    if (ok) {
-      toast.success('Đã thêm mục tiêu tiết kiệm!');
-      setIsAddModalOpen(false);
-      setNewTitle(''); setNewTarget(''); setNewCurrent('0');
+      if (!error) {
+        toast.success('Đã cập nhật mục tiêu!');
+        setEditingGoal(null);
+        setIsAddModalOpen(false);
+        refetch();
+      } else toast.error('Cập nhật thất bại!');
     } else {
-      toast.error('Có lỗi xảy ra, hãy kiểm tra bảng savings_goals!');
+      // Logic Thêm mới
+      const ok = await addGoal({
+        title: newTitle.trim(),
+        target_amount: targetAmt,
+        current_amount: currentAmt,
+        created_at: new Date().toISOString()
+      });
+
+      if (ok) {
+        toast.success('Đã thêm mục tiêu tiết kiệm!');
+        setIsAddModalOpen(false);
+        setNewTitle(''); setNewTarget(''); setNewCurrent('0');
+      } else {
+        toast.error('Có lỗi xảy ra, hãy kiểm tra bảng savings_goals!');
+      }
     }
+  };
+
+  const startEdit = (goal) => {
+    setEditingGoal(goal);
+    setNewTitle(goal.title);
+    setNewTarget(goal.target_amount.toString());
+    setNewCurrent(goal.current_amount.toString());
+    setIsAddModalOpen(true);
+  };
+
+  const handleQuickContribute = async (e) => {
+    e.preventDefault();
+    if (!contributingGoal || !extraAmount) return;
+
+    const extra = parseInt(extraAmount.toString().replace(/[^\d]/g, ''), 10);
+    const newTotal = contributingGoal.current_amount + extra;
+
+    const ok = await updateGoalProgress(contributingGoal.id, newTotal);
+    if (ok) {
+      toast.success(`Đã gửi thêm ${fmt(extra)} vào mục tiêu!`);
+      setContributingGoal(null);
+      setExtraAmount('0');
+    } else toast.error('Cập nhật thất bại!');
   };
 
   const calculateETA = (target, current) => {
@@ -74,12 +118,22 @@ export default function Savings() {
           const ratio = Math.min(100, (goal.current_amount / goal.target_amount) * 100);
           return (
             <div key={goal.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 relative group">
-              <button 
-                onClick={() => { if(window.confirm('Xóa mục tiêu này?')) deleteGoal(goal.id); }}
-                className="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition-colors md:opacity-0 group-hover:opacity-100"
-              >
-                <Trash2 size={16} />
-              </button>
+              <div className="absolute top-4 right-4 flex gap-2 invisible group-hover:visible transition-all">
+                <button 
+                  onClick={() => startEdit(goal)}
+                  className="p-1 text-gray-400 hover:text-blue-500 transition-colors"
+                  title="Chỉnh sửa"
+                >
+                  <Pencil size={16} />
+                </button>
+                <button 
+                  onClick={() => { if(window.confirm('Xóa mục tiêu này?')) deleteGoal(goal.id); }}
+                  className="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                  title="Xóa"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
 
               <div className="flex items-center gap-4 mb-5">
                 <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-500">
@@ -114,6 +168,13 @@ export default function Savings() {
                     </p>
                   </div>
                 </div>
+
+                <button 
+                  onClick={() => { setContributingGoal(goal); setExtraAmount('0'); }}
+                  className="w-full mt-2 py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2"
+                >
+                  <Plus size={16} /> Gửi thêm tiết kiệm
+                </button>
               </div>
             </div>
           );
@@ -131,8 +192,8 @@ export default function Savings() {
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60 px-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 relative">
-            <button onClick={() => setIsAddModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-900 transition-colors"><X size={24} /></button>
-            <h3 className="text-2xl font-black text-gray-900 mb-6">Mục tiêu của bạn là gì?</h3>
+            <button onClick={() => { setIsAddModalOpen(false); setEditingGoal(null); }} className="absolute top-6 right-6 text-gray-400 hover:text-gray-900 transition-colors"><X size={24} /></button>
+            <h3 className="text-2xl font-black text-gray-900 mb-6">{editingGoal ? 'Cập nhật mục tiêu' : 'Mục tiêu của bạn là gì?'}</h3>
             
             <form onSubmit={handleAddGoal} className="space-y-5">
               <div>
@@ -149,18 +210,49 @@ export default function Savings() {
                     className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-all font-medium" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Đã có sẵn (VND)</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Đã tiết kiệm được (VND)</label>
                   <VndInput required value={newCurrent} onChange={setNewCurrent}
                     className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-all font-medium" />
                 </div>
               </div>
 
               <div className="pt-4 flex gap-3">
-                <button type="button" onClick={() => setIsAddModalOpen(false)}
+                <button type="button" onClick={() => { setIsAddModalOpen(false); setEditingGoal(null); }}
                   className="flex-1 px-6 py-3.5 text-gray-500 bg-gray-50 hover:bg-gray-100 rounded-xl font-bold transition-all">Quay lại</button>
                 <button type="submit"
-                  className="flex-1 px-6 py-3.5 text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold transition-all shadow-lg shadow-indigo-200">Bắt đầu tiết kiệm</button>
+                  className="flex-1 px-6 py-3.5 text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold transition-all shadow-lg shadow-indigo-200">
+                    {editingGoal ? 'Lưu thay đổi' : 'Bắt đầu tiết kiệm'}
+                </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CỘNG THÊM TIỀN TIẾT KIỆM */}
+      {contributingGoal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60 px-4 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 relative">
+            <button onClick={() => setContributingGoal(null)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-900 transition-colors"><X size={24} /></button>
+            <div className="flex flex-col items-center text-center mb-6">
+              <div className="w-16 h-16 bg-green-50 text-green-500 rounded-2xl flex items-center justify-center mb-4">
+                <TrendingUp size={32} />
+              </div>
+              <h3 className="text-xl font-black text-gray-900 line-clamp-1">{contributingGoal.title}</h3>
+              <p className="text-sm text-gray-500 mt-1">Gửi thêm tiết kiệm dự phòng</p>
+            </div>
+
+            <form onSubmit={handleQuickContribute} className="space-y-6">
+              <div>
+                <label className="block text-center text-sm font-bold text-gray-700 mb-2">Số tiền muốn cộng thêm (VND)</label>
+                <VndInput autoFocus required value={extraAmount} onChange={setExtraAmount}
+                  className="w-full text-center text-2xl font-black text-indigo-600 border-b-2 border-gray-100 py-2 outline-none focus:border-indigo-500 transition-all bg-transparent" />
+              </div>
+
+              <button type="submit"
+                className="w-full py-4 text-white bg-green-500 hover:bg-green-600 rounded-2xl font-bold transition-all shadow-lg shadow-green-100 flex items-center justify-center gap-2">
+                <Save size={20} /> Xác nhận gửi
+              </button>
             </form>
           </div>
         </div>
