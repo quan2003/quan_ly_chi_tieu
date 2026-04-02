@@ -6,12 +6,24 @@ import http from 'http';
 
 dotenv.config();
 
-const POLL_INTERVAL_MS = 2 * 60 * 1000; // 2 phút
+const POLL_INTERVAL_MS = 60 * 1000; // Giảm xuống 1 phút cho nhanh
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY // dùng service key cho Node.js (không phải anon key)
+  process.env.SUPABASE_SERVICE_KEY
 );
+
+// Tự PING bản thân để chống Render ngủ đông (mỗi 10 phút)
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+if (RENDER_URL) {
+    setInterval(() => {
+        http.get(RENDER_URL, (res) => {
+            console.log(`[${new Date().toLocaleTimeString()}] 💓 Tự ping giữ thức: ${res.statusCode}`);
+        }).on('error', (err) => {
+            console.error('Lỗi tự ping:', err.message);
+        });
+    }, 10 * 60 * 1000);
+}
 
 const config = {
     host: process.env.IMAP_HOST || 'imap.gmail.com',
@@ -138,15 +150,17 @@ async function getCurrentCount() {
 }
 
 async function runWatcher() {
-    console.log('🚀 Email Watcher đã khởi động!');
+    console.log('🚀 Real-time Email Watcher đã khởi động!');
     console.log(`📧 Tài khoản: ${config.auth.user}`);
-    console.log(`⏱  Kiểm tra mỗi: ${POLL_INTERVAL_MS / 1000 / 60} phút`);
+    console.log('⚡ Đang dùng chế độ INSTANT (IDLE) - Nhận mail là nhảy số ngay!');
     console.log('─'.repeat(50));
 
-    const check = async () => {
+    const client = new ImapFlow(config);
+
+    const checkAndSync = async () => {
         const prevCount = await getCurrentCount();
         const now = new Date().toLocaleTimeString('vi-VN');
-        process.stdout.write(`[${now}] Đang kiểm tra email mới...`);
+        process.stdout.write(`[${now}] 🔍 Đang quét email...`);
 
         const count = await fetchAndUpdate();
         if (count < 0) {
@@ -155,15 +169,41 @@ async function runWatcher() {
             const newCount = count - prevCount;
             console.log(` ✅ Cập nhật ${newCount} giao dịch mới! (Tổng: ${count})`);
         } else {
-            console.log(` Không có giao dịch mới (Tổng: ${count})`);
+            console.log(` Không có gì mới (Tổng: ${count})`);
         }
     };
 
-    // Chạy ngay lập tức lần đầu
-    await check();
+    try {
+        await client.connect();
+        
+        // 1. Chạy lần đầu tiên khi khởi động
+        await checkAndSync();
 
-    // Sau đó lặp mỗi 2 phút
-    setInterval(check, POLL_INTERVAL_MS);
+        // 2. Mở hộp thư và lắng nghe sự kiện TRỰC TIẾP
+        await client.mailboxOpen('INBOX');
+
+        // Khi có mail mới (Sự kiện EXISTS)
+        client.on('exists', async (data) => {
+            console.log(`\n[${new Date().toLocaleTimeString()}] 🔔 Phát hiện có mail mới (IDLE)! Đang xử lý...`);
+            await checkAndSync();
+        });
+
+        // Tự động kết nối lại nếu bị đứt (Keep-alive)
+        setInterval(async () => {
+            try {
+                await client.noop(); // Đảm bảo kết nối không bị chết
+            } catch (e) {
+                console.error('Kết nối bị đứt, đang thử lại...');
+                await client.connect();
+                await client.mailboxOpen('INBOX');
+            }
+        }, 5 * 60 * 1000); // 5 phút quét nhẹ 1 lần để giữ kết nối
+
+    } catch (err) {
+        console.error('Lỗi khởi động IDLE:', err.message);
+        // Fallback về chế độ quét 1 phút nếu IDLE lỗi
+        setInterval(checkAndSync, 60 * 1000);
+    }
 }
 
 // DUMMY HTTP SERVER FOR RENDER HEALTH CHECK
