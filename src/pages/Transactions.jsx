@@ -12,6 +12,7 @@ export default function Transactions() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
+  const [filterExactDate, setFilterExactDate] = useState('');
 
   // Inline edit state
   const [editingId, setEditingId] = useState(null);
@@ -79,16 +80,43 @@ export default function Transactions() {
     }
   };
 
-  const filteredTransactions = transactions.filter(tx => {
-    const matchSearch = tx.content.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchType = filterType === 'all' || tx.type === filterType;
-    let matchMonth = true;
-    if (filterMonth === 'current') {
-      const txMonth = tx.date.split('/')[1] || '';
-      matchMonth = parseInt(txMonth, 10) === parseInt(currentMonth, 10);
-    }
-    return matchSearch && matchType && matchMonth;
-  });
+  const parseDateForSort = (dateStr) => {
+    if (!dateStr || dateStr === 'Unknown') return 0;
+    const parts = dateStr.split('/');
+    if (parts.length === 3) return parseInt(`${parts[2]}${parts[1].padStart(2, '0')}${parts[0].padStart(2, '0')}`, 10);
+    return 0;
+  };
+
+  const filteredTransactions = transactions
+    .filter(tx => {
+      // Tìm theo nội dung hoặc ngày (vd gõ "2/4" sẽ ra)
+      const matchSearch = tx.content.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          (tx.date && tx.date.includes(searchTerm));
+      const matchType = filterType === 'all' || tx.type === filterType;
+      
+      let matchMonth = true;
+      if (filterMonth === 'current') {
+        const txMonth = tx.date.split('/')[1] || '';
+        matchMonth = parseInt(txMonth, 10) === parseInt(currentMonth, 10);
+      }
+
+      let matchExactDate = true;
+      if (filterExactDate) {
+        // filterExactDate is "yyyy-mm-dd", tx.date is "d/m/yyyy"
+        const [y, m, d] = filterExactDate.split('-');
+        const targetDate = `${parseInt(d, 10)}/${parseInt(m, 10)}/${y}`;
+        matchExactDate = tx.date === targetDate;
+      }
+
+      return matchSearch && matchType && matchMonth && matchExactDate;
+    })
+    .sort((a, b) => {
+      // Ưu tiên hiển thị ngày mới nhất trên cùng
+      const dDiff = parseDateForSort(b.date) - parseDateForSort(a.date);
+      if (dDiff !== 0) return dDiff;
+      // Dùng ID để sort phụ (do id chứa uid của mail hoặc timestamp nếu thủ công)
+      return b.id.localeCompare(a.id);
+    });
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -109,22 +137,33 @@ export default function Transactions() {
         <div className="p-4 border-b border-gray-100 flex flex-col md:flex-row gap-4 justify-between items-center bg-gray-50/50">
           <div className="relative w-full md:w-96">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input type="text" placeholder="Tìm kiếm giao dịch..."
+            <input type="text" placeholder="Tìm tên hoặc ngày (vd: 1/4)..."
               className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
-          <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg bg-white w-full md:w-auto">
-            <Filter size={16} className="text-gray-500 shrink-0" />
-            <select className="text-sm bg-transparent border-none focus:ring-0 text-gray-700 font-medium cursor-pointer" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
-              <option value="all">Tất cả thời gian</option>
-              <option value="current">Tháng này</option>
-            </select>
-            <div className="w-px h-4 bg-gray-300 mx-2 shrink-0"></div>
-            <select className="text-sm bg-transparent border-none focus:ring-0 text-gray-700 font-medium cursor-pointer" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-              <option value="all">Tất cả loại</option>
-              <option value="income">Thu nhập</option>
-              <option value="expense">Chi tiêu</option>
-            </select>
+          
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <input 
+              type="date" 
+              title="Lọc theo ngày cụ thể"
+              className="text-sm px-3 py-2 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg bg-white font-medium text-gray-700" 
+              value={filterExactDate} 
+              onChange={(e) => setFilterExactDate(e.target.value)}
+            />
+
+            <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg bg-white shrink-0">
+              <Filter size={16} className="text-gray-500 shrink-0" />
+              <select className="text-sm bg-transparent border-none focus:ring-0 text-gray-700 font-medium cursor-pointer" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
+                <option value="all">Tất cả tháng</option>
+                <option value="current">Tháng này</option>
+              </select>
+              <div className="w-px h-4 bg-gray-300 mx-2 shrink-0"></div>
+              <select className="text-sm bg-transparent border-none focus:ring-0 text-gray-700 font-medium cursor-pointer" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+                <option value="all">Tất cả loại</option>
+                <option value="income">Thu nhập</option>
+                <option value="expense">Chi tiêu</option>
+              </select>
+            </div>
           </div>
         </div>
 

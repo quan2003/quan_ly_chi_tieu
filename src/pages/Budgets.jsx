@@ -16,11 +16,34 @@ export default function Budgets() {
 
   const fmt = (val) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val || 0);
 
-  const handleDelete = async (category) => {
-    if (!window.confirm(`Xoá ngân sách "${category}"?`)) return;
-    const ok = await deleteBudget(category);
-    if (ok) toast.success(`Đã xoá ngân sách "${category}"!`);
-    else toast.error('Xoá thất bại!');
+  const handleDelete = (category) => {
+    toast(
+      (t) => (
+        <div>
+          <p className="mb-3 font-medium text-gray-800">Bạn có chắc muốn xoá ngân sách "{category}"?</p>
+          <div className="flex justify-end gap-2">
+            <button 
+              onClick={() => toast.dismiss(t.id)} 
+              className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Hủy
+            </button>
+            <button 
+              onClick={async () => {
+                toast.dismiss(t.id);
+                const ok = await deleteBudget(category);
+                if (ok) toast.success(`Đã xoá ngân sách "${category}"!`);
+                else toast.error('Xoá thất bại!');
+              }}
+              className="px-3 py-1.5 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+            >
+              Xoá
+            </button>
+          </div>
+        </div>
+      ),
+      { duration: Infinity, id: `delete-budget-${category}` }
+    );
   };
 
   const openCreate = () => {
