@@ -70,17 +70,23 @@ async function processEmail(source, uid) {
             finalCategory = 'Thu nhập';
         } else {
             const t = content.toLowerCase();
-            const foodKeywords = ['an', 'com', 'bun', 'pho', 'bep', 'quan an', 'nha hang', 'cafe', 'coffee', 'tra sua', 'banh', 'food', 'bakery'];
-            const shopKeywords = ['shopee', 'lazada', 'tiktok', 'mua hang', 'sieu thi', 'clothing', 'fashion', 'ao ', 'quan '];
-            const transportKeywords = ['xang', 'grab', 'gojek', 'xe om', 'taxi', 'be ', 'xanh sm', 'petrolimex'];
-            const homeKeywords = ['dien', 'nuoc', 'internet', 'tien nha', 'thue nha', 'mang', 'wifi', 'fpt', 'viettel'];
-            const livingKeywords = ['chuyen tien', 'transfer', 'tiet kiem', 'tra no', 'sinh hoat'];
+            const foodKeywords = ['an', 'com', 'bun', 'pho', 'bep', 'quan an', 'nha hang', 'cafe', 'coffee', 'tra sua', 'banh', 'food', 'bakery', 'pizz', 'nha hang'];
+            const shopKeywords = ['shopee', 'lazada', 'tiktok', 'mua hang', 'sieu thi', 'clothing', 'fashion', 'ao ', 'quan ', 'mall', 'tiki'];
+            const transportKeywords = ['xang', 'grab', 'gojek', 'xe om', 'taxi', 'be ', 'xanh sm', 'petrolimex', 'xe may', 'o to'];
+            const homeKeywords = ['dien', 'nuoc', 'internet', 'tien nha', 'thue nha', 'mang', 'wifi', 'fpt', 'viettel', 'tro', 'phong tro'];
+            const livingKeywords = ['chuyen tien', 'transfer', 'tiet kiem', 'tra no', 'sinh hoat', 'hoc phi', 'vien phi'];
 
-            if (shopKeywords.some(k => t.includes(k))) finalCategory = 'Mua sắm';
-            else if (foodKeywords.some(k => t.includes(k))) finalCategory = 'Ăn uống';
-            else if (transportKeywords.some(k => t.includes(k))) finalCategory = 'Xăng xe';
-            else if (homeKeywords.some(k => t.includes(k))) finalCategory = 'Nhà cửa';
-            else if (livingKeywords.some(k => t.includes(k))) finalCategory = 'Sinh hoạt';
+            // Hàm kiểm tra từ khóa chính xác (không bị dính vào giữa từ khác)
+            const check = (keywords) => keywords.some(k => {
+                const regex = new RegExp(`\\b${k}\\b`, 'i');
+                return regex.test(t);
+            });
+
+            if (check(shopKeywords)) finalCategory = 'Mua sắm';
+            else if (check(foodKeywords)) finalCategory = 'Ăn uống';
+            else if (check(transportKeywords)) finalCategory = 'Xăng xe';
+            else if (check(homeKeywords)) finalCategory = 'Nhà cửa';
+            else if (check(livingKeywords)) finalCategory = 'Sinh hoạt';
         }
 
         if (amount > 0) {
