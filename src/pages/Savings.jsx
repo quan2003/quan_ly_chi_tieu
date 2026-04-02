@@ -13,6 +13,7 @@ export default function Savings() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState(null); // Để lưu goal đang được sửa
   const [contributingGoal, setContributingGoal] = useState(null); // Cho modal cộng thêm tiền
+  const [deletingGoal, setDeletingGoal] = useState(null); // Cho modal xác nhận xóa
   
   const [newTitle, setNewTitle] = useState('');
   const [newTarget, setNewTarget] = useState('');
@@ -127,7 +128,7 @@ export default function Savings() {
                   <Pencil size={16} />
                 </button>
                 <button 
-                  onClick={() => { if(window.confirm('Xóa mục tiêu này?')) deleteGoal(goal.id); }}
+                  onClick={() => setDeletingGoal(goal)}
                   className="p-1 text-gray-300 hover:text-red-500 transition-colors"
                   title="Xóa"
                 >
@@ -254,6 +255,34 @@ export default function Savings() {
                 <Save size={20} /> Xác nhận gửi
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL XÁC NHẬN XÓA */}
+      {deletingGoal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900 bg-opacity-60 px-4 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs p-8 text-center">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Xác nhận xóa?</h3>
+            <p className="text-sm text-gray-500 mb-6 font-medium">Bạn có chắc muốn xóa mục tiêu "{deletingGoal.title}" không?</p>
+            
+            <div className="flex gap-3">
+              <button onClick={() => setDeletingGoal(null)} className="flex-1 py-3 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl font-bold transition-all">Hủy</button>
+              <button 
+                onClick={async () => {
+                  const ok = await deleteGoal(deletingGoal.id);
+                  if (ok) toast.success('Đã xóa mục tiêu!');
+                  else toast.error('Xóa thất bại!');
+                  setDeletingGoal(null);
+                }}
+                className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-100"
+              >
+                Xóa ngay
+              </button>
+            </div>
           </div>
         </div>
       )}
