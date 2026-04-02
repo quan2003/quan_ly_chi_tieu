@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import * as dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import http from 'http';
 
 dotenv.config();
 
@@ -164,6 +165,16 @@ async function runWatcher() {
     // Sau đó lặp mỗi 2 phút
     setInterval(check, POLL_INTERVAL_MS);
 }
+
+// DUMMY HTTP SERVER FOR RENDER HEALTH CHECK
+// Render Web Service requires a port to be bound
+const port = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Email Watcher is running...');
+}).listen(port, () => {
+    console.log(`📡 Health check server listening on port ${port}`);
+});
 
 // Kiểm tra credentials trước khi chạy
 if (!config.auth.user || !config.auth.pass) {
