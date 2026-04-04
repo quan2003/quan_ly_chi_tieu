@@ -25,6 +25,114 @@ export default function Transactions() {
   const [manualType, setManualType] = useState('expense');
   const [manualCategory, setManualCategory] = useState('');
 
+  // Bỏ dấu tiếng Việt → so khớp được cả text ngân hàng ghi không dấu
+  const removeAccents = (str) =>
+    str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+
+  /**
+   * Tự động phân loại giao dịch dựa trên danh sách Ngân sách thực tế của user.
+   *
+   * Ưu tiên:
+   *  1. So khớp trực tiếp tên category (bỏ dấu) với nội dung giao dịch
+   *     → "Bảo dưỡng xe" khớp "bao duong xe Truong Luu"
+   *  2. Keyword map thương hiệu/ngân hàng → tìm category user khớp ngữ nghĩa
+   *     → "jollibee" → nhóm ăn uống → tìm category có chữ "ăn" trong tên user
+   */
+  const autoDetectCategory = (text, categories) => {
+    if (!text || !categories.length) return '';
+    const lower = text.toLowerCase();
+    const plain = removeAccents(lower);
+
+    // ── BƯỚC 1A: So sánh CÓ DẤU — dành cho nội dung user tự gõ có dấu ─────────
+    // VD: user gõ "Ăn uống" → khớp category "Ăn uống"
+    for (const cat of categories) {
+      const catLower = cat.toLowerCase();
+      // Lấy các từ ≥ 3 ký tự của tên category (giữ nguyên dấu)
+      const catWords = catLower.split(/[\s\/\-&|,+]+/).filter(w => w.length >= 3);
+      if (catWords.length > 0 && catWords.every(w => lower.includes(w))) {
+        return cat; // trả về tên category gốc có dấu
+      }
+    }
+
+    // ── BƯỚC 1B: So sánh KHÔNG DẤU — dành cho nội dung ngân hàng ghi không dấu
+    // VD: ngân hàng ghi "bao duong xe" → khớp category "Bảo dưỡng xe"
+    for (const cat of categories) {
+      const catPlain = removeAccents(cat.toLowerCase());
+      // Lấy các từ ≥ 3 ký tự của tên category (đã bỏ dấu)
+      const catWords = catPlain.split(/[\s\/\-&|,+]+/).filter(w => w.length >= 3);
+      if (catWords.length > 0 && catWords.every(w => plain.includes(w))) {
+        return cat; // trả về tên category gốc có dấu
+      }
+    }
+
+
+    // ── BƯỚC 2: Keyword map thương hiệu → tìm category user theo ngữ nghĩa ───
+    // Mỗi nhóm có: keywords (để match input), semantics (từ khoá ngữ nghĩa
+    // để tìm trong TÊN CATEGORY CỦA USER — không hardcode tên category)
+    const keywordMap = [
+      {
+        label: 'Mua sắm',
+        keys: ['shopee', 'shoppe', 'lazada', 'tiki', 'sendo', 'mua sam', 'online', 'grab shop', 'order', 'mua hang'],
+        semantics: ['mua sam', 'mua sup', 'online', 'thuong mai', 'shopping'],
+      },
+      {
+        label: 'Ăn uống',
+        keys: ['jollibee', 'kfc', 'mcdonalds', 'pizza', 'burger', 'bun', 'an uong', 'an ', 'nhau', 'cafe', 'coffee',
+          'tra sua', 'milk tea', 'highlands', 'pho', 'bua an', 'lau', 'quan an', 'nha hang', 'banh mi', 'do an',
+          'trai cay', 'muoi', 'rau cu', 'thit', 'hai san', 'grocery', 'go tamky', 'winmart', 'bach hoa xanh'],
+        semantics: ['an uong', 'an &', 'thuc pham', 'food', 'an sang', 'an trua', 'an toi'],
+      },
+      {
+        label: 'Di chuyển',
+        keys: ['grab', 'be app', 'gojek', 'xang xe', 'sua xe', 'bao duong', 'parking', 'do xe', 'taxi',
+          'may bay', 'tau hoa', 'xe buyt', 've xe', 've may bay'],
+        semantics: ['di chuyen', 'xang xe', 'bao duong', 'phuong tien', 'giao thong', 'van tai'],
+      },
+      {
+        label: 'Hóa đơn',
+        keys: ['tien dien', 'tien nuoc', 'internet', 'wifi', 'dien thoai', 'hoa don', 'thue nha', 'tien nha', 'rent', 'bill'],
+        semantics: ['hoa don', 'nha o', 'dien nuoc', 'sinh hoat', 'tien ich'],
+      },
+      {
+        label: 'Y tế',
+        keys: ['thuoc', 'benh vien', 'phong kham', 'kham benh', 'y te', 'suc khoe', 'vitamin', 'clinic', 'hospital', 'pharmacy'],
+        semantics: ['y te', 'suc khoe', 'thuoc', 'kham', 'benh'],
+      },
+      {
+        label: 'Giáo dục',
+        keys: ['hoc phi', 'truong hoc', 'sach giao', 'khoa hoc', 'udemy', 'coursera', 'giao duc', 'tien hoc'],
+        semantics: ['giao duc', 'hoc tap', 'dao tao', 'truong'],
+      },
+      {
+        label: 'Giải trí',
+        keys: ['netflix', 'spotify', 'youtube', 'game', 'phim anh', 'giai tri', 'du lich', 'resort', 'khach san', 'hotel', 've xem', 'rap phim'],
+        semantics: ['giai tri', 'du lich', 'vui choi', 'nghi duong', 'the thao'],
+      },
+      {
+        label: 'Phát sinh',
+        keys: ['rut tien', 'chuyen tien', 'chuyen khoan', 'nop tien', 'phi dich vu', 'phi atm', 'phat sinh',
+          'timo', 'mbbank', 'mb bank', 'vcb', 'vietcombank', 'techcombank', 'agribank', 'bidv', 'vpbank', 'sacombank', 'hdbank', 'atm transaction'],
+        semantics: ['phat sinh', 'ngan hang', 'phi', 'chuyen khoan'],
+      },
+    ];
+
+    for (const { keys, semantics } of keywordMap) {
+      // Input khớp với keyword nhóm này không?
+      const inputMatched = keys.some(kw => plain.includes(kw));
+
+      if (inputMatched) {
+        // Tìm trong danh sách category thực của user:
+        // tên category (bỏ dấu) phải chứa ít nhất 1 từ semantics
+        const matched_cat = categories.find(cat => {
+          const catPlain = removeAccents(cat.toLowerCase());
+          return semantics.some(s => catPlain.includes(s));
+        });
+        if (matched_cat) return matched_cat;
+      }
+    }
+    return '';
+  };
+
   const fmt = (val) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val || 0);
 
   // Danh sách phân loại từ Supabase budgets
@@ -52,9 +160,21 @@ export default function Transactions() {
 
   const currentMonth = (new Date().getMonth() + 1).toString();
 
+  const resetModal = () => {
+    setIsAddModalOpen(false);
+    setManualTitle('');
+    setManualAmount('');
+    setManualType('expense');
+    setManualCategory('');
+  };
+
   const handleCreateTransaction = async (e) => {
     e.preventDefault();
     if (!manualTitle.trim() || !manualAmount) return;
+    if (manualType === 'expense' && !manualCategory) {
+      toast.error('Vui lòng chọn phân loại!');
+      return;
+    }
 
     const pad = (n) => n < 10 ? '0' + n : n;
     const d = new Date();
@@ -67,14 +187,13 @@ export default function Transactions() {
       amount: manualType === 'expense' ? -amt : amt,
       date: dateFormatted,
       type: manualType,
-      category: manualType === 'income' ? 'Thu nhập' : (manualCategory || EXPENSE_CATEGORIES[0] || 'Kinh doanh / Khác'),
+      category: manualType === 'income' ? 'Thu nhập' : manualCategory,
       source: 'manual'
     };
 
     const ok = await addTransaction(newTx);
     if (ok) {
-      setIsAddModalOpen(false);
-      setManualTitle(''); setManualAmount(''); setManualType('expense'); setManualCategory('');
+      resetModal();
       toast.success('Đã thêm giao dịch thủ công!');
     } else {
       toast.error('Thêm giao dịch thất bại!');
@@ -269,7 +388,7 @@ export default function Transactions() {
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-50 px-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 relative">
-            <button onClick={() => setIsAddModalOpen(false)} className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"><X size={20} /></button>
+            <button onClick={resetModal} className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"><X size={20} /></button>
             <h3 className="text-xl font-bold text-gray-900 mb-4">Ghi chép giao dịch</h3>
             <form onSubmit={handleCreateTransaction} className="space-y-4">
               <div>
@@ -282,16 +401,25 @@ export default function Transactions() {
                   </select>
                   <select value={manualCategory} onChange={e => setManualCategory(e.target.value)}
                     disabled={manualType === 'income'}
-                    className={`w-2/3 border border-gray-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 ${manualType === 'income' ? 'bg-gray-100 text-gray-500' : ''}`}>
+                    className={`w-2/3 border border-gray-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 ${manualType === 'income' ? 'bg-gray-100 text-gray-500' : !manualCategory ? 'border-orange-300 text-gray-400' : ''}`}>
+                    <option value="" disabled>-- Chọn phân loại --</option>
                     {EXPENSE_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nội dung</label>
-                <input type="text" autoFocus required placeholder="Ví dụ: Ăn trưa..."
+                <input type="text" autoFocus required placeholder="Ví dụ: Ăn trưa, Shopee..."
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
-                  value={manualTitle} onChange={e => setManualTitle(e.target.value)} />
+                  value={manualTitle}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setManualTitle(val);
+                    if (manualType === 'expense') {
+                      const detected = autoDetectCategory(val, EXPENSE_CATEGORIES);
+                      if (detected) setManualCategory(detected);
+                    }
+                  }} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Số tiền (VND)</label>
@@ -299,7 +427,7 @@ export default function Transactions() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div className="pt-2 flex justify-end gap-3">
-                <button type="button" onClick={() => setIsAddModalOpen(false)}
+                <button type="button" onClick={resetModal}
                   className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors">Hủy</button>
                 <button type="submit"
                   className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors">Ghi chép</button>
