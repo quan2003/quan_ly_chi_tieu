@@ -82,30 +82,48 @@ export default function Dashboard() {
 
   // --- HỆ THỐNG THÔNG BÁO NGÂN SÁCH ---
   React.useEffect(() => {
-    if (budgets.length > 0 && thisMonthTxs.length > 0) {
-      budgets.forEach(b => {
-        const spent = thisMonthTxs
-          .filter(tx => tx.category === b.category && tx.type === 'expense')
-          .reduce((a, c) => a + Math.abs(c.amount), 0);
-        
-        const ratio = (spent / b.amount) * 100;
-        
-        if (ratio >= 80) {
-          const type = ratio >= 100 ? 'VƯỢT ĐỊNH MỨC' : 'SẮP CHẠM NGƯỠNG';
-          const msg = `⚠️ Hạn mức [${b.category}] đã ${ratio >= 100 ? 'vượt' : 'đạt'} ${ratio.toFixed(0)}%!`;
-          
-          // Toast trong app
-          if (ratio >= 100) toast.error(msg, { id: `alert-${b.category}` });
-          else toast(msg, { icon: '🔔', id: `alert-${b.category}` });
+    if (budgets.length === 0 || thisMonthTxs.length === 0) return;
 
-          // Yêu cầu Browser Notification nếu cần
-          if (Notification.permission === 'default') Notification.requestPermission();
-          if (Notification.permission === 'granted' && ratio >= 80) {
-             new Notification('Quản lý chi tiêu', { body: msg });
-          }
+    const sendBrowserNotification = async (msg) => {
+      try {
+        // Chỉ hoạt động nếu browser hỗ trợ Notification API
+        if (!('Notification' in window)) return;
+
+        let permission = Notification.permission;
+
+        // Chỉ hỏi quyền nếu chưa có quyết định (không hỏi lại nếu đã denied)
+        if (permission === 'default') {
+          permission = await Notification.requestPermission();
         }
-      });
-    }
+
+        // Chỉ gửi thông báo khi đã được cấp quyền
+        if (permission === 'granted') {
+          new Notification('Quản lý chi tiêu', { body: msg });
+        }
+      } catch (err) {
+        // Bỏ qua lỗi notification (ví dụ trình duyệt không hỗ trợ)
+        console.warn('Notification error:', err);
+      }
+    };
+
+    budgets.forEach(b => {
+      const spent = thisMonthTxs
+        .filter(tx => tx.category === b.category && tx.type === 'expense')
+        .reduce((a, c) => a + Math.abs(c.amount), 0);
+
+      const ratio = (spent / b.amount) * 100;
+
+      if (ratio >= 80) {
+        const msg = `⚠️ Hạn mức [${b.category}] đã ${ratio >= 100 ? 'vượt' : 'đạt'} ${ratio.toFixed(0)}%!`;
+
+        // Toast trong app
+        if (ratio >= 100) toast.error(msg, { id: `alert-${b.category}` });
+        else toast(msg, { icon: '🔔', id: `alert-${b.category}` });
+
+        // Gửi browser notification (bất đồng bộ, không chặn render)
+        sendBrowserNotification(msg);
+      }
+    });
   }, [budgets, thisMonthTxs]);
 
   const recentTransactions = transactions.slice(0, 5);
