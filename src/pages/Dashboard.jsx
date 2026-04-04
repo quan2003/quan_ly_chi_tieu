@@ -86,22 +86,21 @@ export default function Dashboard() {
 
     const sendBrowserNotification = async (msg) => {
       try {
-        // Chỉ hoạt động nếu browser hỗ trợ Notification API
         if (!('Notification' in window)) return;
 
-        let permission = Notification.permission;
+        // ✋ Chỉ gửi thông báo hệ thống khi user ĐANG mở app
+        // Nếu tab bị ẩn hoặc cửa sổ không focus → KHÔNG gửi, chỉ dùng toast
+        const isAppVisible = document.visibilityState === 'visible' && document.hasFocus();
+        if (!isAppVisible) return;
 
-        // Chỉ hỏi quyền nếu chưa có quyết định (không hỏi lại nếu đã denied)
+        let permission = Notification.permission;
         if (permission === 'default') {
           permission = await Notification.requestPermission();
         }
-
-        // Chỉ gửi thông báo khi đã được cấp quyền
         if (permission === 'granted') {
           new Notification('Quản lý chi tiêu', { body: msg });
         }
       } catch (err) {
-        // Bỏ qua lỗi notification (ví dụ trình duyệt không hỗ trợ)
         console.warn('Notification error:', err);
       }
     };
@@ -116,11 +115,11 @@ export default function Dashboard() {
       if (ratio >= 80) {
         const msg = `⚠️ Hạn mức [${b.category}] đã ${ratio >= 100 ? 'vượt' : 'đạt'} ${ratio.toFixed(0)}%!`;
 
-        // Toast trong app
+        // Toast luôn hiện khi đang trong app
         if (ratio >= 100) toast.error(msg, { id: `alert-${b.category}` });
         else toast(msg, { icon: '🔔', id: `alert-${b.category}` });
 
-        // Gửi browser notification (bất đồng bộ, không chặn render)
+        // Browser notification: chỉ khi đang mở app
         sendBrowserNotification(msg);
       }
     });
